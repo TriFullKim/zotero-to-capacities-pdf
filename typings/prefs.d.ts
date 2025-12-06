@@ -7,8 +7,14 @@
 declare namespace _ZoteroTypes {
   interface Prefs {
     PluginPrefsMap: {
-      "enable": boolean;
-      "input": string;
+      "apiToken": string;
+      "spaceId": string;
+      "autoSync": boolean;
+      "syncOnItemChange": boolean;
+      "includePageNumbers": boolean;
+      "includeTags": boolean;
+      "useColorEmoji": boolean;
+      "processedItems": string;
     };
   }
 }
