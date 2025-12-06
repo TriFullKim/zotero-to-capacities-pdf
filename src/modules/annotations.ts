@@ -1,0 +1,294 @@
+/**
+ * Zotero Annotation Extraction and Markdown Conversion
+ * Extracts PDF annotations and converts them to Capacities-compatible markdown
+ */
+
+import { getPref } from "../utils/prefs";
+
+// Zotero annotation color to emoji mapping
+const COLOR_EMOJI_MAP: Record<string, string> = {
+  "#ffd400": "\u{1F7E1}", // Yellow
+  "#ff6666": "\u{1F534}", // Red
+  "#5fb236": "\u{1F7E2}", // Green
+  "#2ea8e5": "\u{1F535}", // Blue
+  "#a28ae5": "\u{1F7E3}", // Purple
+  "#e56eee": "\u{1F7E3}", // Magenta -> Purple
+  "#f19837": "\u{1F7E0}", // Orange
+  "#aaaaaa": "\u26AA", // Gray
+};
+
+// Default color for unknown colors
+const DEFAULT_EMOJI = "\u{1F7E1}"; // Yellow
+
+export interface ZoteroAnnotation {
+  key: string;
+  annotationType: "highlight" | "underline" | "note" | "image" | "ink";
+  annotationText?: string;
+  annotationComment?: string;
+  annotationColor?: string;
+  annotationPageLabel?: string;
+  annotationSortIndex?: string;
+  dateAdded: string;
+  dateModified: string;
+  tags: Array<{ tag: string }>;
+}
+
+export interface AnnotationFormatted {
+  text: string;
+  comment?: string;
+  color: string;
+  colorEmoji: string;
+  pageLabel?: string;
+  tags: string[];
+  sortIndex: string;
+}
+
+export interface ItemAnnotationData {
+  itemKey: string;
+  itemTitle: string;
+  itemUrl?: string;
+  itemDoi?: string;
+  itemCreators?: string;
+  itemDate?: string;
+  pdfTitle?: string;
+  annotations: AnnotationFormatted[];
+}
+
+/**
+ * Get color emoji from hex color
+ */
+function getColorEmoji(hexColor?: string): string {
+  if (!hexColor) return DEFAULT_EMOJI;
+
+  const normalizedColor = hexColor.toLowerCase();
+  return COLOR_EMOJI_MAP[normalizedColor] || DEFAULT_EMOJI;
+}
+
+/**
+ * Extract annotations from a PDF attachment
+ */
+export async function extractAnnotationsFromAttachment(
+  attachment: Zotero.Item,
+): Promise<ZoteroAnnotation[]> {
+  if (!attachment.isPDFAttachment()) {
+    return [];
+  }
+
+  const annotations = attachment.getAnnotations();
+  if (!annotations || annotations.length === 0) {
+    return [];
+  }
+
+  return annotations.map((annot) => ({
+    key: annot.key,
+    annotationType: annot.annotationType as ZoteroAnnotation["annotationType"],
+    annotationText: annot.annotationText || undefined,
+    annotationComment: annot.annotationComment || undefined,
+    annotationColor: annot.annotationColor || undefined,
+    annotationPageLabel: annot.annotationPageLabel || undefined,
+    annotationSortIndex: annot.annotationSortIndex?.toString() || undefined,
+    dateAdded: annot.dateAdded,
+    dateModified: annot.dateModified,
+    tags: annot.getTags(),
+  }));
+}
+
+/**
+ * Extract all annotations from a Zotero item (including all PDF attachments)
+ */
+export async function extractAnnotationsFromItem(
+  item: Zotero.Item,
+): Promise<ItemAnnotationData | null> {
+  // Get the top-level item
+  let topItem: Zotero.Item | null = null;
+  if (item.isTopLevelItem()) {
+    topItem = item;
+  } else if (item.parentItemID) {
+    topItem = Zotero.Items.get(item.parentItemID) as Zotero.Item;
+  }
+
+  if (!topItem) {
+    return null;
+  }
+
+  // Get PDF attachments
+  const attachmentIds = topItem.getAttachments();
+  const attachments = Zotero.Items.get(attachmentIds) as Zotero.Item[];
+  const pdfAttachments = attachments.filter((att) => att.isPDFAttachment());
+
+  if (pdfAttachments.length === 0) {
+    return null;
+  }
+
+  // Collect all annotations from all PDFs
+  const allAnnotations: AnnotationFormatted[] = [];
+
+  for (const pdf of pdfAttachments) {
+    const annotations = await extractAnnotationsFromAttachment(pdf);
+
+    for (const annot of annotations) {
+      // Only include highlights, underlines, and notes with text
+      if (
+        annot.annotationType === "highlight" ||
+        annot.annotationType === "underline" ||
+        annot.annotationType === "note"
+      ) {
+        if (annot.annotationText || annot.annotationComment) {
+          allAnnotations.push({
+            text: annot.annotationText || "",
+            comment: annot.annotationComment || undefined,
+            color: annot.annotationColor || "#ffd400",
+            colorEmoji: getColorEmoji(annot.annotationColor),
+            pageLabel: annot.annotationPageLabel,
+            tags: annot.tags.map((t) => t.tag),
+            sortIndex: annot.annotationSortIndex || "",
+          });
+        }
+      }
+    }
+  }
+
+  // Sort annotations by sort index (page order)
+  allAnnotations.sort((a, b) => a.sortIndex.localeCompare(b.sortIndex));
+
+  // Get item metadata
+  const creators = topItem.getCreators();
+  const creatorNames = creators
+    .map((c) => `${c.firstName || ""} ${c.lastName || ""}`.trim())
+    .filter((n) => n)
+    .join(", ");
+
+  // Get URL or DOI
+  let itemUrl = topItem.getField("url") as string | undefined;
+  const itemDoi = topItem.getField("DOI") as string | undefined;
+
+  if (!itemUrl && itemDoi) {
+    itemUrl = `https://doi.org/${itemDoi}`;
+  }
+
+  // If no URL, try to use Zotero web library link
+  if (!itemUrl) {
+    const libraryID = topItem.libraryID;
+    const library = Zotero.Libraries.get(libraryID);
+    if (library && library.libraryType === "user") {
+      // Use local Zotero URI as fallback
+      itemUrl = `zotero://select/library/items/${topItem.key}`;
+    }
+  }
+
+  return {
+    itemKey: topItem.key,
+    itemTitle: topItem.getField("title") as string,
+    itemUrl,
+    itemDoi,
+    itemCreators: creatorNames || undefined,
+    itemDate: (topItem.getField("date") as string) || undefined,
+    pdfTitle: pdfAttachments[0]?.getField("title") as string,
+    annotations: allAnnotations,
+  };
+}
+
+/**
+ * Convert annotations to Capacities markdown format
+ * Format:
+ * - Highlight text = quote with color emoji (NO italic)
+ * - Comment = default text below quote
+ */
+export function formatAnnotationsToMarkdown(
+  data: ItemAnnotationData,
+): string {
+  const includePageNumbers = getPref("includePageNumbers") ?? true;
+  const includeTags = getPref("includeTags") ?? true;
+  const useColorEmoji = getPref("useColorEmoji") ?? true;
+
+  const lines: string[] = [];
+
+  // Header with item info
+  lines.push(`## Annotations`);
+  lines.push("");
+
+  if (data.itemCreators) {
+    lines.push(`**Authors:** ${data.itemCreators}`);
+  }
+  if (data.itemDate) {
+    lines.push(`**Date:** ${data.itemDate}`);
+  }
+  if (data.itemDoi) {
+    lines.push(`**DOI:** ${data.itemDoi}`);
+  }
+
+  if (data.itemCreators || data.itemDate || data.itemDoi) {
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+  }
+
+  // Format each annotation
+  for (const annot of data.annotations) {
+    // Build the quote line
+    const colorPrefix = useColorEmoji ? `${annot.colorEmoji} ` : "";
+    const pageInfo =
+      includePageNumbers && annot.pageLabel ? ` *(p.${annot.pageLabel})*` : "";
+
+    if (annot.text) {
+      // Quote block for highlight text - NO italic, just the text
+      const quoteLines = annot.text.split("\n").map((line) => `> ${line}`);
+      quoteLines[0] = `> ${colorPrefix}${quoteLines[0].slice(2)}${pageInfo}`;
+      lines.push(quoteLines.join("\n"));
+    }
+
+    // Comment as regular text below quote
+    if (annot.comment) {
+      lines.push("");
+      lines.push(annot.comment);
+    }
+
+    // Tags if enabled
+    if (includeTags && annot.tags.length > 0) {
+      lines.push("");
+      lines.push(`Tags: ${annot.tags.map((t) => `#${t}`).join(" ")}`);
+    }
+
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+/**
+ * Get the best URL for syncing to Capacities
+ * Priority: DOI link > URL field > Zotero link
+ */
+export function getBestUrlForItem(data: ItemAnnotationData): string {
+  // Prefer DOI link (usually leads to PDF or landing page)
+  if (data.itemDoi) {
+    return `https://doi.org/${data.itemDoi}`;
+  }
+
+  // Use URL field if available
+  if (data.itemUrl && !data.itemUrl.startsWith("zotero://")) {
+    return data.itemUrl;
+  }
+
+  // Fallback to Zotero URI
+  return data.itemUrl || `zotero://select/library/items/${data.itemKey}`;
+}
+
+/**
+ * Build description for Capacities weblink
+ */
+export function buildDescription(data: ItemAnnotationData): string {
+  const parts: string[] = [];
+
+  if (data.itemCreators) {
+    parts.push(data.itemCreators);
+  }
+  if (data.itemDate) {
+    parts.push(`(${data.itemDate})`);
+  }
+
+  const desc = parts.join(" ");
+  return desc.slice(0, 1000);
+}

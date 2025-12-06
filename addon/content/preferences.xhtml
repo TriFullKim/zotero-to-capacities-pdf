@@ -5,29 +5,112 @@
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });"
 >
   <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
-  <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
-  />
-  <hbox>
-    <html:label
-      for="zotero-prefpane-__addonRef__-input"
-      data-l10n-id="pref-input"
-    ></html:label>
-    <html:input
-      type="text"
-      id="zotero-prefpane-__addonRef__-input"
-      preference="input"
-    ></html:input>
-  </hbox>
-  <hbox class="virtualized-table-container" flex="1" height="300px">
-    <html:div id="__addonRef__-table-container" />
-  </hbox>
+
+  <!-- API Configuration Section -->
+  <groupbox>
+    <label><html:h3 data-l10n-id="pref-api-section"></html:h3></label>
+
+    <hbox align="center">
+      <html:label
+        for="zotero-prefpane-__addonRef__-apiToken"
+        data-l10n-id="pref-api-token"
+        style="width: 120px;"
+      ></html:label>
+      <html:input
+        type="password"
+        id="zotero-prefpane-__addonRef__-apiToken"
+        preference="apiToken"
+        style="flex: 1; min-width: 300px;"
+      ></html:input>
+    </hbox>
+
+    <hbox align="center" style="margin-top: 8px;">
+      <html:label
+        for="zotero-prefpane-__addonRef__-spaceId"
+        data-l10n-id="pref-space-id"
+        style="width: 120px;"
+      ></html:label>
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-spaceId"
+        preference="spaceId"
+        style="flex: 1; min-width: 300px;"
+      ></html:input>
+    </hbox>
+
+    <hbox style="margin-top: 8px;">
+      <button
+        id="zotero-prefpane-__addonRef__-test-connection"
+        data-l10n-id="pref-test-connection"
+      ></button>
+      <button
+        id="zotero-prefpane-__addonRef__-fetch-spaces"
+        data-l10n-id="pref-fetch-spaces"
+      ></button>
+    </hbox>
+
+    <html:p data-l10n-id="pref-api-help" style="color: #666; font-size: 12px; margin-top: 8px;"></html:p>
+  </groupbox>
+
+  <!-- Sync Settings Section -->
+  <groupbox style="margin-top: 16px;">
+    <label><html:h3 data-l10n-id="pref-sync-section"></html:h3></label>
+
+    <checkbox
+      id="zotero-prefpane-__addonRef__-autoSync"
+      preference="autoSync"
+      data-l10n-id="pref-auto-sync"
+    />
+
+    <checkbox
+      id="zotero-prefpane-__addonRef__-syncOnItemChange"
+      preference="syncOnItemChange"
+      data-l10n-id="pref-sync-on-change"
+    />
+  </groupbox>
+
+  <!-- Format Settings Section -->
+  <groupbox style="margin-top: 16px;">
+    <label><html:h3 data-l10n-id="pref-format-section"></html:h3></label>
+
+    <checkbox
+      id="zotero-prefpane-__addonRef__-includePageNumbers"
+      preference="includePageNumbers"
+      data-l10n-id="pref-include-page-numbers"
+    />
+
+    <checkbox
+      id="zotero-prefpane-__addonRef__-includeTags"
+      preference="includeTags"
+      data-l10n-id="pref-include-tags"
+    />
+
+    <checkbox
+      id="zotero-prefpane-__addonRef__-useColorEmoji"
+      preference="useColorEmoji"
+      data-l10n-id="pref-use-color-emoji"
+    />
+  </groupbox>
+
+  <!-- Actions Section -->
+  <groupbox style="margin-top: 16px;">
+    <label><html:h3 data-l10n-id="pref-actions-section"></html:h3></label>
+
+    <hbox>
+      <button
+        id="zotero-prefpane-__addonRef__-clear-cache"
+        data-l10n-id="pref-clear-cache"
+      ></button>
+    </hbox>
+
+    <html:p id="zotero-prefpane-__addonRef__-stats" style="margin-top: 8px; color: #666;"></html:p>
+  </groupbox>
 </groupbox>
-<vbox>
+
+<vbox style="margin-top: 16px;">
   <html:label
     data-l10n-id="pref-help"
     data-l10n-args='{"time": "__buildTime__","name": "__addonName__","version":"__buildVersion__"}'
+    style="color: #888; font-size: 11px;"
   ></html:label>
 </vbox>

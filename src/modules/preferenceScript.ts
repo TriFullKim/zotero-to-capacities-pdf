@@ -1,131 +1,198 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
+import { getPref, setPref } from "../utils/prefs";
+import {
+  getCapacitiesClient,
+  resetCapacitiesClient,
+} from "./capacities";
+import { clearProcessedItems, getSyncStats } from "./sync";
 
 export async function registerPrefsScripts(_window: Window) {
-  // This function is called when the prefs window is opened
-  // See addon/content/preferences.xhtml onpaneload
   if (!addon.data.prefs) {
     addon.data.prefs = {
       window: _window,
-      columns: [
-        {
-          dataKey: "title",
-          label: getString("prefs-table-title"),
-          fixedWidth: true,
-          width: 100,
-        },
-        {
-          dataKey: "detail",
-          label: getString("prefs-table-detail"),
-        },
-      ],
-      rows: [
-        {
-          title: "Orange",
-          detail: "It's juicy",
-        },
-        {
-          title: "Banana",
-          detail: "It's sweet",
-        },
-        {
-          title: "Apple",
-          detail: "I mean the fruit APPLE",
-        },
-      ],
+      columns: [],
+      rows: [],
     };
   } else {
     addon.data.prefs.window = _window;
   }
+
   updatePrefsUI();
   bindPrefEvents();
 }
 
 async function updatePrefsUI() {
-  // You can initialize some UI elements on prefs window
-  // with addon.data.prefs.window.document
-  // Or bind some events to the elements
-  const renderLock = ztoolkit.getGlobal("Zotero").Promise.defer();
-  if (addon.data.prefs?.window == undefined) return;
-  const tableHelper = new ztoolkit.VirtualizedTable(addon.data.prefs?.window)
-    .setContainerId(`${config.addonRef}-table-container`)
-    .setProp({
-      id: `${config.addonRef}-prefs-table`,
-      // Do not use setLocale, as it modifies the Zotero.Intl.strings
-      // Set locales directly to columns
-      columns: addon.data.prefs?.columns,
-      showHeader: true,
-      multiSelect: true,
-      staticColumns: true,
-      disableFontSizeScaling: true,
-    })
-    .setProp("getRowCount", () => addon.data.prefs?.rows.length || 0)
-    .setProp(
-      "getRowData",
-      (index) =>
-        addon.data.prefs?.rows[index] || {
-          title: "no data",
-          detail: "no data",
-        },
-    )
-    // Show a progress window when selection changes
-    .setProp("onSelectionChange", (selection) => {
-      new ztoolkit.ProgressWindow(config.addonName)
-        .createLine({
-          text: `Selected line: ${addon.data.prefs?.rows
-            .filter((v, i) => selection.isSelected(i))
-            .map((row) => row.title)
-            .join(",")}`,
-          progress: 100,
-        })
-        .show();
-    })
-    // When pressing delete, delete selected line and refresh table.
-    // Returning false to prevent default event.
-    .setProp("onKeyDown", (event: KeyboardEvent) => {
-      if (event.key == "Delete" || (Zotero.isMac && event.key == "Backspace")) {
-        addon.data.prefs!.rows =
-          addon.data.prefs?.rows.filter(
-            (v, i) => !tableHelper.treeInstance.selection.isSelected(i),
-          ) || [];
-        tableHelper.render();
-        return false;
-      }
-      return true;
-    })
-    // For find-as-you-type
-    .setProp(
-      "getRowString",
-      (index) => addon.data.prefs?.rows[index].title || "",
-    )
-    // Render the table.
-    .render(-1, () => {
-      renderLock.resolve();
-    });
-  await renderLock.promise;
-  ztoolkit.log("Preference table rendered!");
+  if (!addon.data.prefs?.window) return;
+
+  const doc = addon.data.prefs.window.document;
+
+  // Update stats display
+  const statsEl = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-stats`,
+  ) as HTMLElement;
+  if (statsEl) {
+    const stats = getSyncStats();
+    statsEl.textContent =
+      getString("pref-stats") ||
+      `Synced items: ${stats.processedCount}`;
+  }
 }
 
 function bindPrefEvents() {
-  addon.data
-    .prefs!.window.document?.querySelector(
-      `#zotero-prefpane-${config.addonRef}-enable`,
-    )
-    ?.addEventListener("command", (e: Event) => {
-      ztoolkit.log(e);
-      addon.data.prefs!.window.alert(
-        `Successfully changed to ${(e.target as XUL.Checkbox).checked}!`,
-      );
-    });
+  const doc = addon.data.prefs?.window?.document;
+  if (!doc) return;
 
-  addon.data
-    .prefs!.window.document?.querySelector(
-      `#zotero-prefpane-${config.addonRef}-input`,
-    )
-    ?.addEventListener("change", (e: Event) => {
-      ztoolkit.log(e);
-      addon.data.prefs!.window.alert(
-        `Successfully changed to ${(e.target as HTMLInputElement).value}!`,
+  // Test Connection button
+  const testConnectionBtn = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-test-connection`,
+  );
+  testConnectionBtn?.addEventListener("click", async () => {
+    await handleTestConnection();
+  });
+
+  // Fetch Spaces button
+  const fetchSpacesBtn = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-fetch-spaces`,
+  );
+  fetchSpacesBtn?.addEventListener("click", async () => {
+    await handleFetchSpaces();
+  });
+
+  // Clear Cache button
+  const clearCacheBtn = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-clear-cache`,
+  );
+  clearCacheBtn?.addEventListener("click", () => {
+    handleClearCache();
+  });
+
+  // API Token change
+  const apiTokenInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-apiToken`,
+  ) as HTMLInputElement;
+  apiTokenInput?.addEventListener("change", () => {
+    resetCapacitiesClient();
+  });
+
+  // Space ID change
+  const spaceIdInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-spaceId`,
+  ) as HTMLInputElement;
+  spaceIdInput?.addEventListener("change", () => {
+    resetCapacitiesClient();
+  });
+}
+
+async function handleTestConnection() {
+  const win = addon.data.prefs?.window;
+  if (!win) return;
+
+  const client = getCapacitiesClient();
+  client.refreshCredentials();
+
+  if (!client.isConfigured()) {
+    win.alert(
+      getString("alert-not-configured-message") ||
+        "Please enter API Token and Space ID first.",
+    );
+    return;
+  }
+
+  try {
+    const success = await client.testConnection();
+    if (success) {
+      win.alert(
+        getString("alert-connection-success") || "Connection successful!",
       );
-    });
+    } else {
+      win.alert(
+        getString("alert-connection-failed") ||
+          "Connection failed. Please check your credentials.",
+      );
+    }
+  } catch (err) {
+    const error = err as Error;
+    win.alert(`Connection error: ${error.message}`);
+  }
+}
+
+async function handleFetchSpaces() {
+  const win = addon.data.prefs?.window;
+  if (!win) return;
+
+  const doc = win.document;
+  const client = getCapacitiesClient();
+  client.refreshCredentials();
+
+  const apiToken = getPref("apiToken");
+  if (!apiToken) {
+    win.alert(
+      getString("alert-no-api-token") || "Please enter API Token first.",
+    );
+    return;
+  }
+
+  try {
+    const response = await client.getSpaces();
+    const spaces = response.spaces;
+
+    if (spaces.length === 0) {
+      win.alert(getString("alert-no-spaces") || "No spaces found.");
+      return;
+    }
+
+    // Create a simple selection dialog
+    const spaceList = spaces
+      .map((s, i) => `${i + 1}. ${s.title} (${s.id})`)
+      .join("\n");
+
+    const selection = win.prompt(
+      `${getString("prompt-select-space") || "Select a space (enter number)"}:\n\n${spaceList}`,
+      "1",
+    );
+
+    if (selection) {
+      const index = parseInt(selection, 10) - 1;
+      if (index >= 0 && index < spaces.length) {
+        const selectedSpace = spaces[index];
+        setPref("spaceId", selectedSpace.id);
+
+        // Update the input field
+        const spaceIdInput = doc.querySelector(
+          `#zotero-prefpane-${config.addonRef}-spaceId`,
+        ) as HTMLInputElement;
+        if (spaceIdInput) {
+          spaceIdInput.value = selectedSpace.id;
+        }
+
+        resetCapacitiesClient();
+        win.alert(
+          `${getString("alert-space-selected") || "Space selected"}: ${selectedSpace.title}`,
+        );
+      }
+    }
+  } catch (err) {
+    const error = err as Error;
+    win.alert(`Error fetching spaces: ${error.message}`);
+  }
+}
+
+function handleClearCache() {
+  const win = addon.data.prefs?.window;
+  if (!win) return;
+
+  const confirmed = win.confirm(
+    getString("confirm-clear-cache") ||
+      "Are you sure you want to clear the sync history? This will allow all items to be synced again.",
+  );
+
+  if (confirmed) {
+    clearProcessedItems();
+    resetCapacitiesClient();
+    updatePrefsUI();
+    win.alert(
+      getString("alert-cache-cleared") || "Sync history cleared.",
+    );
+  }
 }
