@@ -22,12 +22,14 @@ const DEFAULT_EMOJI = "\u{1F7E1}"; // Yellow
 
 export interface ZoteroAnnotation {
   key: string;
+  parentKey: string; // PDF attachment key for deep linking
   annotationType: "highlight" | "underline" | "note" | "image" | "ink";
   annotationText?: string;
   annotationComment?: string;
   annotationColor?: string;
   annotationPageLabel?: string;
   annotationSortIndex?: string;
+  annotationPosition?: { pageIndex: number }; // For page number in deep link
   dateAdded: string;
   dateModified: string;
   tags: Array<{ tag: string }>;
@@ -39,8 +41,10 @@ export interface AnnotationFormatted {
   color: string;
   colorEmoji: string;
   pageLabel?: string;
+  pageIndex?: number; // 0-based page index for deep link
   tags: string[];
   sortIndex: string;
+  zoteroLink?: string; // Deep link to annotation in Zotero
 }
 
 export interface ItemAnnotationData {
@@ -79,18 +83,36 @@ export async function extractAnnotationsFromAttachment(
     return [];
   }
 
-  return annotations.map((annot) => ({
-    key: annot.key,
-    annotationType: annot.annotationType as ZoteroAnnotation["annotationType"],
-    annotationText: annot.annotationText || undefined,
-    annotationComment: annot.annotationComment || undefined,
-    annotationColor: annot.annotationColor || undefined,
-    annotationPageLabel: annot.annotationPageLabel || undefined,
-    annotationSortIndex: annot.annotationSortIndex?.toString() || undefined,
-    dateAdded: annot.dateAdded,
-    dateModified: annot.dateModified,
-    tags: annot.getTags(),
-  }));
+  return annotations.map((annot) => {
+    // Try to get position info for page index
+    let position: { pageIndex: number } | undefined;
+    try {
+      const positionStr = annot.annotationPosition;
+      if (positionStr) {
+        const posData = typeof positionStr === "string" ? JSON.parse(positionStr) : positionStr;
+        if (posData && typeof posData.pageIndex === "number") {
+          position = { pageIndex: posData.pageIndex };
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+
+    return {
+      key: annot.key,
+      parentKey: attachment.key, // PDF attachment key for deep linking
+      annotationType: annot.annotationType as ZoteroAnnotation["annotationType"],
+      annotationText: annot.annotationText || undefined,
+      annotationComment: annot.annotationComment || undefined,
+      annotationColor: annot.annotationColor || undefined,
+      annotationPageLabel: annot.annotationPageLabel || undefined,
+      annotationSortIndex: annot.annotationSortIndex?.toString() || undefined,
+      annotationPosition: position,
+      dateAdded: annot.dateAdded,
+      dateModified: annot.dateModified,
+      tags: annot.getTags(),
+    };
+  });
 }
 
 /**
@@ -134,14 +156,25 @@ export async function extractAnnotationsFromItem(
         annot.annotationType === "note"
       ) {
         if (annot.annotationText || annot.annotationComment) {
+          // Build Zotero deep link for this annotation
+          // Format: zotero://open-pdf/library/items/{ATTACHMENT_KEY}?page={PAGE}&annotation={ANNOTATION_KEY}
+          const pageParam = annot.annotationPosition
+            ? `page=${annot.annotationPosition.pageIndex + 1}` // 1-based page number
+            : "";
+          const annotParam = `annotation=${annot.key}`;
+          const queryParams = pageParam ? `${pageParam}&${annotParam}` : annotParam;
+          const zoteroLink = `zotero://open-pdf/library/items/${annot.parentKey}?${queryParams}`;
+
           allAnnotations.push({
             text: annot.annotationText || "",
             comment: annot.annotationComment || undefined,
             color: annot.annotationColor || "#ffd400",
             colorEmoji: getColorEmoji(annot.annotationColor),
             pageLabel: annot.annotationPageLabel,
+            pageIndex: annot.annotationPosition?.pageIndex,
             tags: annot.tags.map((t) => t.tag),
             sortIndex: annot.annotationSortIndex || "",
+            zoteroLink,
           });
         }
       }
@@ -225,10 +258,19 @@ export function formatAnnotationsToMarkdown(
 
   // Format each annotation
   for (const annot of data.annotations) {
-    // Build the quote line
+    // Build the quote line with optional Zotero deep link
     const colorPrefix = useColorEmoji ? `${annot.colorEmoji} ` : "";
-    const pageInfo =
-      includePageNumbers && annot.pageLabel ? ` *(p.${annot.pageLabel})*` : "";
+
+    // Page info with Zotero deep link if available
+    let pageInfo = "";
+    if (includePageNumbers && annot.pageLabel) {
+      if (annot.zoteroLink) {
+        // Clickable link to open annotation in Zotero
+        pageInfo = ` [*(p.${annot.pageLabel})*](${annot.zoteroLink})`;
+      } else {
+        pageInfo = ` *(p.${annot.pageLabel})*`;
+      }
+    }
 
     if (annot.text) {
       // Quote block for highlight text - NO italic, just the text
