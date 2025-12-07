@@ -35,6 +35,10 @@ export interface ZoteroAnnotation {
   tags: Array<{ tag: string }>;
 }
 
+export interface AnnotationType {
+  isImage: boolean; // True for image/area annotations
+}
+
 export interface AnnotationFormatted {
   text: string;
   comment?: string;
@@ -45,6 +49,7 @@ export interface AnnotationFormatted {
   tags: string[];
   sortIndex: string;
   zoteroLink?: string; // Deep link to annotation in Zotero
+  isImage: boolean; // True for image/area annotations
 }
 
 export interface ItemAnnotationData {
@@ -55,6 +60,7 @@ export interface ItemAnnotationData {
   itemCreators?: string;
   itemDate?: string;
   pdfTitle?: string;
+  pdfUrl?: string; // Direct PDF URL for MediaPDF type (e.g., arxiv.org/pdf/xxx.pdf)
   annotations: AnnotationFormatted[];
 }
 
@@ -66,6 +72,36 @@ function getColorEmoji(hexColor?: string): string {
 
   const normalizedColor = hexColor.toLowerCase();
   return COLOR_EMOJI_MAP[normalizedColor] || DEFAULT_EMOJI;
+}
+
+/**
+ * Check if URL points directly to a PDF file
+ * Detects common PDF hosting patterns (arxiv, direct .pdf links, etc.)
+ */
+function isPdfUrl(url: string): boolean {
+  const lowerUrl = url.toLowerCase();
+
+  // Direct .pdf extension
+  if (lowerUrl.endsWith(".pdf")) {
+    return true;
+  }
+
+  // ArXiv PDF URLs (arxiv.org/pdf/xxx)
+  if (lowerUrl.includes("arxiv.org/pdf/")) {
+    return true;
+  }
+
+  // Common PDF hosting patterns
+  if (
+    lowerUrl.includes("/pdf/") &&
+    (lowerUrl.includes("arxiv") ||
+      lowerUrl.includes("biorxiv") ||
+      lowerUrl.includes("medrxiv"))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -89,7 +125,10 @@ export async function extractAnnotationsFromAttachment(
     try {
       const positionStr = annot.annotationPosition;
       if (positionStr) {
-        const posData = typeof positionStr === "string" ? JSON.parse(positionStr) : positionStr;
+        const posData =
+          typeof positionStr === "string"
+            ? JSON.parse(positionStr)
+            : positionStr;
         if (posData && typeof posData.pageIndex === "number") {
           position = { pageIndex: posData.pageIndex };
         }
@@ -101,7 +140,8 @@ export async function extractAnnotationsFromAttachment(
     return {
       key: annot.key,
       parentKey: attachment.key, // PDF attachment key for deep linking
-      annotationType: annot.annotationType as ZoteroAnnotation["annotationType"],
+      annotationType:
+        annot.annotationType as ZoteroAnnotation["annotationType"],
       annotationText: annot.annotationText || undefined,
       annotationComment: annot.annotationComment || undefined,
       annotationColor: annot.annotationColor || undefined,
@@ -144,27 +184,49 @@ export async function extractAnnotationsFromItem(
 
   // Collect all annotations from all PDFs
   const allAnnotations: AnnotationFormatted[] = [];
+  let directPdfUrl: string | undefined;
 
   for (const pdf of pdfAttachments) {
+    // Try to get direct PDF URL from attachment
+    const attachmentUrl = pdf.getField("url") as string | undefined;
+    if (attachmentUrl && isPdfUrl(attachmentUrl)) {
+      directPdfUrl = attachmentUrl;
+    }
+
     const annotations = await extractAnnotationsFromAttachment(pdf);
 
     for (const annot of annotations) {
-      // Only include highlights, underlines, and notes with text
-      if (
+      // Build Zotero deep link for this annotation
+      // Format: zotero://open-pdf/library/items/{ATTACHMENT_KEY}?page={PAGE}&annotation={ANNOTATION_KEY}
+      const pageParam = annot.annotationPosition
+        ? `page=${annot.annotationPosition.pageIndex + 1}` // 1-based page number
+        : "";
+      const annotParam = `annotation=${annot.key}`;
+      const queryParams = pageParam ? `${pageParam}&${annotParam}` : annotParam;
+      const zoteroLink = `zotero://open-pdf/library/items/${annot.parentKey}?${queryParams}`;
+
+      // Handle image/area annotations
+      if (annot.annotationType === "image") {
+        // Image annotations - add as figure annotation with deep link
+        allAnnotations.push({
+          text: "", // No text for image annotations
+          comment: annot.annotationComment || undefined,
+          color: annot.annotationColor || "#ffd400",
+          colorEmoji: getColorEmoji(annot.annotationColor),
+          pageLabel: annot.annotationPageLabel,
+          pageIndex: annot.annotationPosition?.pageIndex,
+          tags: annot.tags.map((t) => t.tag),
+          sortIndex: annot.annotationSortIndex || "",
+          zoteroLink,
+          isImage: true,
+        });
+      } else if (
         annot.annotationType === "highlight" ||
         annot.annotationType === "underline" ||
         annot.annotationType === "note"
       ) {
+        // Text-based annotations - include if has text or comment
         if (annot.annotationText || annot.annotationComment) {
-          // Build Zotero deep link for this annotation
-          // Format: zotero://open-pdf/library/items/{ATTACHMENT_KEY}?page={PAGE}&annotation={ANNOTATION_KEY}
-          const pageParam = annot.annotationPosition
-            ? `page=${annot.annotationPosition.pageIndex + 1}` // 1-based page number
-            : "";
-          const annotParam = `annotation=${annot.key}`;
-          const queryParams = pageParam ? `${pageParam}&${annotParam}` : annotParam;
-          const zoteroLink = `zotero://open-pdf/library/items/${annot.parentKey}?${queryParams}`;
-
           allAnnotations.push({
             text: annot.annotationText || "",
             comment: annot.annotationComment || undefined,
@@ -175,9 +237,11 @@ export async function extractAnnotationsFromItem(
             tags: annot.tags.map((t) => t.tag),
             sortIndex: annot.annotationSortIndex || "",
             zoteroLink,
+            isImage: false,
           });
         }
       }
+      // Skip ink annotations (freehand drawings)
     }
   }
 
@@ -217,6 +281,7 @@ export async function extractAnnotationsFromItem(
     itemCreators: creatorNames || undefined,
     itemDate: (topItem.getField("date") as string) || undefined,
     pdfTitle: pdfAttachments[0]?.getField("title") as string,
+    pdfUrl: directPdfUrl,
     annotations: allAnnotations,
   };
 }
@@ -227,9 +292,7 @@ export async function extractAnnotationsFromItem(
  * - Highlight text = quote with color emoji (NO italic)
  * - Comment = default text below quote
  */
-export function formatAnnotationsToMarkdown(
-  data: ItemAnnotationData,
-): string {
+export function formatAnnotationsToMarkdown(data: ItemAnnotationData): string {
   const includePageNumbers = getPref("includePageNumbers") ?? true;
   const includeTags = getPref("includeTags") ?? true;
   const useColorEmoji = getPref("useColorEmoji") ?? true;
@@ -272,17 +335,28 @@ export function formatAnnotationsToMarkdown(
       }
     }
 
-    if (annot.text) {
+    // Handle image/area annotations differently
+    if (annot.isImage) {
+      // Image annotation - show as figure reference with deep link
+      const figureText = `📷 Figure annotation${pageInfo}`;
+      lines.push(`> ${colorPrefix}${figureText}`);
+
+      // Comment as regular text below
+      if (annot.comment) {
+        lines.push("");
+        lines.push(annot.comment);
+      }
+    } else if (annot.text) {
       // Quote block for highlight text - NO italic, just the text
       const quoteLines = annot.text.split("\n").map((line) => `> ${line}`);
       quoteLines[0] = `> ${colorPrefix}${quoteLines[0].slice(2)}${pageInfo}`;
       lines.push(quoteLines.join("\n"));
-    }
 
-    // Comment as regular text below quote
-    if (annot.comment) {
-      lines.push("");
-      lines.push(annot.comment);
+      // Comment as regular text below quote
+      if (annot.comment) {
+        lines.push("");
+        lines.push(annot.comment);
+      }
     }
 
     // Tags if enabled
@@ -301,10 +375,27 @@ export function formatAnnotationsToMarkdown(
 
 /**
  * Get the best URL for syncing to Capacities
- * Priority: DOI link > URL field > Zotero link
+ * Priority: Direct PDF URL (for MediaPDF) > DOI link > URL field > Zotero link
+ *
+ * Using a direct PDF URL will cause Capacities to create a MediaPDF object type
+ * instead of a generic MediaWebResource.
  */
 export function getBestUrlForItem(data: ItemAnnotationData): string {
-  // Prefer DOI link (usually leads to PDF or landing page)
+  // Prefer direct PDF URL for MediaPDF type creation
+  if (data.pdfUrl) {
+    return data.pdfUrl;
+  }
+
+  // Check if the item URL is a direct PDF link
+  if (
+    data.itemUrl &&
+    !data.itemUrl.startsWith("zotero://") &&
+    isPdfUrl(data.itemUrl)
+  ) {
+    return data.itemUrl;
+  }
+
+  // DOI link (creates MediaWebResource, but good for academic papers)
   if (data.itemDoi) {
     return `https://doi.org/${data.itemDoi}`;
   }

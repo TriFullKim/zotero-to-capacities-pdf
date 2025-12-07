@@ -91,17 +91,22 @@ export async function syncItemToCapacities(
     return {
       success: false,
       itemKey: item.key,
-      itemTitle: item.getField("title") as string || "Unknown",
-      error: "Capacities API not configured. Please set API token and Space ID.",
+      itemTitle: (item.getField("title") as string) || "Unknown",
+      error:
+        "Capacities API not configured. Please set API token and Space ID.",
     };
   }
 
   // Check if already processed
-  if (!options.force && !options.skipProcessedCheck && isItemProcessed(item.key)) {
+  if (
+    !options.force &&
+    !options.skipProcessedCheck &&
+    isItemProcessed(item.key)
+  ) {
     return {
       success: false,
       itemKey: item.key,
-      itemTitle: item.getField("title") as string || "Unknown",
+      itemTitle: (item.getField("title") as string) || "Unknown",
       error: "Item already synced. Use force sync to re-sync.",
     };
   }
@@ -113,7 +118,7 @@ export async function syncItemToCapacities(
     return {
       success: false,
       itemKey: item.key,
-      itemTitle: item.getField("title") as string || "Unknown",
+      itemTitle: (item.getField("title") as string) || "Unknown",
       error: "No PDF attachments or annotations found.",
     };
   }

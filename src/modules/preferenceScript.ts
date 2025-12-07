@@ -1,10 +1,7 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 import { getPref, setPref } from "../utils/prefs";
-import {
-  getCapacitiesClient,
-  resetCapacitiesClient,
-} from "./capacities";
+import { getCapacitiesClient, resetCapacitiesClient } from "./capacities";
 import { clearProcessedItems, getSyncStats } from "./sync";
 
 export async function registerPrefsScripts(_window: Window) {
@@ -34,8 +31,7 @@ async function updatePrefsUI() {
   if (statsEl) {
     const stats = getSyncStats();
     statsEl.textContent =
-      getString("pref-stats") ||
-      `Synced items: ${stats.processedCount}`;
+      getString("pref-stats") || `Synced items: ${stats.processedCount}`;
   }
 }
 
@@ -191,8 +187,6 @@ function handleClearCache() {
     clearProcessedItems();
     resetCapacitiesClient();
     updatePrefsUI();
-    win.alert(
-      getString("alert-cache-cleared") || "Sync history cleared.",
-    );
+    win.alert(getString("alert-cache-cleared") || "Sync history cleared.");
   }
 }

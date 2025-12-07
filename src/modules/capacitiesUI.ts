@@ -73,9 +73,7 @@ export function registerNotifier(): void {
     },
   };
 
-  const notifierID = Zotero.Notifier.registerObserver(callback, [
-    "item",
-  ]);
+  const notifierID = Zotero.Notifier.registerObserver(callback, ["item"]);
 
   // Unregister on shutdown
   Zotero.Plugins.addObserver({
@@ -307,7 +305,8 @@ async function handleTestConnection(): Promise<void> {
 
     if (success) {
       progressWin.changeLine({
-        text: getString("progress-connection-success") || "Connection successful!",
+        text:
+          getString("progress-connection-success") || "Connection successful!",
         type: "success",
         progress: 100,
       });
@@ -344,7 +343,9 @@ function handleClearCache(): void {
 
   progressWin
     .createLine({
-      text: getString("progress-cache-cleared-message") || "Sync history has been cleared.",
+      text:
+        getString("progress-cache-cleared-message") ||
+        "Sync history has been cleared.",
       type: "success",
       progress: 100,
     })

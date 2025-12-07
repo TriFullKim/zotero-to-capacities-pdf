@@ -26,13 +26,13 @@ Sync your Zotero PDF annotations to [Capacities](https://capacities.io) - the st
 
 ---
 
-> 🟡 This is a highlighted text from the PDF. [*(p.25)*](zotero://open-pdf/...)
+> 🟡 This is a highlighted text from the PDF. [_(p.25)_](zotero://open-pdf/...)
 
 Your comment on this highlight goes here.
 
 ---
 
-> 🔴 Another important highlight with red color. [*(p.42)*](zotero://open-pdf/...)
+> 🔴 Another important highlight with red color. [_(p.42)_](zotero://open-pdf/...)
 
 Additional notes about this section.
 ```
@@ -74,14 +74,15 @@ Additional notes about this section.
 
 ### Context Menu Options
 
-| Option | Description |
-|--------|-------------|
-| **Sync to Capacities** | Sync selected items (skips already synced) |
-| **Force Sync (Re-sync)** | Re-sync items even if already synced |
+| Option                   | Description                                |
+| ------------------------ | ------------------------------------------ |
+| **Sync to Capacities**   | Sync selected items (skips already synced) |
+| **Force Sync (Re-sync)** | Re-sync items even if already synced       |
 
 ### Zotero Deep Links
 
 Each annotation includes a clickable link like `[*(p.25)*](zotero://open-pdf/...)` that:
+
 - Opens Zotero if not running
 - Opens the PDF in Zotero's reader
 - Jumps to the exact page and annotation
@@ -89,26 +90,26 @@ Each annotation includes a clickable link like `[*(p.25)*](zotero://open-pdf/...
 ## Color Mapping
 
 | Zotero Color | Emoji |
-|--------------|-------|
-| Yellow | 🟡 |
-| Red | 🔴 |
-| Green | 🟢 |
-| Blue | 🔵 |
-| Purple | 🟣 |
-| Orange | 🟠 |
-| Gray | ⚪ |
+| ------------ | ----- |
+| Yellow       | 🟡    |
+| Red          | 🔴    |
+| Green        | 🟢    |
+| Blue         | 🔵    |
+| Purple       | 🟣    |
+| Orange       | 🟠    |
+| Gray         | ⚪    |
 
 ## Settings
 
-| Setting | Description |
-|---------|-------------|
-| **API Token** | Your Capacities API token |
-| **Space ID** | Target Capacities space |
-| **Auto-sync** | Enable automatic sync |
-| **Sync on change** | Sync when annotations are modified |
-| **Include page numbers** | Show page numbers in output |
-| **Include tags** | Include annotation tags |
-| **Use color emoji** | Use colored emoji for highlights |
+| Setting                  | Description                        |
+| ------------------------ | ---------------------------------- |
+| **API Token**            | Your Capacities API token          |
+| **Space ID**             | Target Capacities space            |
+| **Auto-sync**            | Enable automatic sync              |
+| **Sync on change**       | Sync when annotations are modified |
+| **Include page numbers** | Show page numbers in output        |
+| **Include tags**         | Include annotation tags            |
+| **Use color emoji**      | Use colored emoji for highlights   |
 
 ## API Limitations
 
