@@ -3,19 +3,83 @@ name: Release
 on:
   push:
     tags:
-      - v**
+      - "v*"
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
 
 jobs:
-  create-release:
-    uses: zotero-plugin-dev/workflows/.github/workflows/release-plugin.yml@main
-    # You can customize any of the inputs here.
-    # If you omit an input, its default value will be used.
-    with:
-      build: "npm run build"
-      release: "npm run release"
-    secrets: inherit
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Find XPI file
+        id: find_xpi
+        run: |
+          XPI_FILE=$(find .scaffold/build -name "*.xpi" | head -1)
+          echo "XPI_PATH=$XPI_FILE" >> $GITHUB_OUTPUT
+          echo "XPI_NAME=$(basename $XPI_FILE)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Zotero Capacities v${{ steps.get_version.outputs.VERSION }}
+
+            ### Installation
+            1. Download `${{ steps.find_xpi.outputs.XPI_NAME }}`
+            2. In Zotero, go to `Tools` → `Add-ons`
+            3. Click the gear icon and select `Install Add-on From File...`
+            4. Select the downloaded `.xpi` file
+
+            ### Requirements
+            - Zotero 7+
+            - Capacities account with API access
+
+            See [README](https://github.com/${{ github.repository }}#readme) for configuration instructions.
+          files: |
+            ${{ steps.find_xpi.outputs.XPI_PATH }}
+            .scaffold/build/update.json
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release manifest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release
+          name: Update Manifests
+          body: |
+            This release contains update manifests for auto-update functionality.
+
+            - `update.json` - For stable releases
+            - `update-beta.json` - For pre-releases
+          files: |
+            .scaffold/build/update.json
+            .scaffold/build/update-beta.json
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
